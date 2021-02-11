@@ -15,7 +15,7 @@ from .configurableretrypolicy import ConfigurableRetryPolicy
 from .command import Command
 from .exceptions import LivyClientTimeoutException, \
     LivyUnexpectedStatusException, BadUserDataException, SqlContextNotFoundException
-
+from hops import constants as hopsconstants, util
 
 class _HeartbeatThread(threading.Thread):
     def __init__(self, livy_session, refresh_seconds, retry_seconds, run_at_most=None):
@@ -141,6 +141,7 @@ class LivySession(ObjectWithGuid):
                 kernel_id = connection_file.split('-', 1)[1].split('.')[0]
                 self.properties['conf']['spark.yarn.appMasterEnv.HOPSWORKS_KERNEL_ID'] = kernel_id
                 self.properties['conf']['spark.executorEnv.HOPSWORKS_KERNEL_ID'] = kernel_id
+                self.attach_jupyter_configuration_to_notebook(kernel_id)
 
             r = self._http_client.post_session(self.properties)
             self.id = r[u"id"]
@@ -335,3 +336,19 @@ class LivySession(ObjectWithGuid):
             return u"""<a target="_blank" href="{1}">{0}</a>""".format(text, url)
         else:
             return u""
+
+    def attach_jupyter_configuration_to_notebook(self, kernel_id):
+        method = hopsconstants.HTTP_CONFIG.HTTP_PUT
+        resource_url = hopsconstants.DELIMITERS.SLASH_DELIMITER + \
+                       hopsconstants.REST_CONFIG.HOPSWORKS_REST_RESOURCE + hopsconstants.DELIMITERS.SLASH_DELIMITER + \
+                       "project" + hopsconstants.DELIMITERS.SLASH_DELIMITER + os.environ["HOPSWORKS_PROJECT_ID"] + \
+                       hopsconstants.DELIMITERS.SLASH_DELIMITER + "jupyter/attachConfiguration" + \
+                       hopsconstants.DELIMITERS.SLASH_DELIMITER + os.environ["HADOOP_USER_NAME"] + \
+                       hopsconstants.DELIMITERS.SLASH_DELIMITER + kernel_id
+        headers = {hopsconstants.HTTP_CONFIG.HTTP_CONTENT_TYPE: hopsconstants.HTTP_CONFIG.HTTP_APPLICATION_JSON}
+        response = util.send_request(method, resource_url, headers=headers)
+        if response.status_code >= 400:
+            response_object = response.json()
+            error_code, error_msg, user_msg = util._parse_rest_error(response_object)
+            self.logger.error(error_msg)
+
